@@ -1,0 +1,17 @@
+{
+  "type": "script",
+  "id": "67ae61bc-10a0-4586-86f1-a2c34552ef61",
+  "name": "Tavern Frontend V1.0.1 只读测试",
+  "enabled": false,
+  "content": "(async () => {\n  const version = 'V1.0.1';\n  const stateKey = Symbol.for('acu.dice.compat.extension');\n  const host = window.top;\n  const message = (type, text) => {\n    console[type === 'error' ? 'error' : 'info']('[骰子兼容扩展测试]', text);\n    try {\n      host?.toastr?.[type]?.(text, '骰子兼容扩展测试', { timeOut: type === 'error' ? 0 : 8000 });\n    } catch (error) {\n      console.error('[骰子兼容扩展测试] 无法显示提示:', error);\n    }\n  };\n\n  try {\n    if (!host?.document || !host.location) throw new Error('无法访问酒馆宿主页面');\n    if (!host[stateKey]) {\n      throw new Error('扩展尚未启动，请安装 Tavern-Frontend 扩展、启用并刷新酒馆');\n    }\n\n    const state = host[stateKey];\n    if (!state?.promise) throw new Error('扩展没有报告启动状态');\n    let timer;\n    try {\n      await Promise.race([\n        state.promise,\n        new Promise((_, reject) => {\n          timer = host.setTimeout(() => reject(new Error('等待扩展启动超时')), 70_000);\n        }),\n      ]);\n    } finally {\n      host.clearTimeout(timer);\n    }\n    if (state.version !== version || state.status !== 'running' || !host.AcuDice) {\n      throw new Error(`扩展状态不匹配：${state.version || '未知版本'} / ${state.status || '未知状态'}`);\n    }\n\n    const db = host.AutoCardUpdaterAPI;\n    if (!db || ['updateCell', 'insertRow', 'deleteRow'].some(name => typeof db[name] !== 'function')) {\n      throw new Error('扩展已加载，但数据库公开 CRUD API 尚未就绪');\n    }\n    message('success', `${version} 已加载，数据库 CRUD API 已就绪。持久化和重开聊天仍需按说明手动验证。`);\n  } catch (error) {\n    message('error', error instanceof Error ? error.message : String(error));\n  }\n})();\n",
+  "info": "默认停用；只读检查已启动的固定版扩展及公开 API，不改数据库，不代替重开聊天验收。",
+  "button": {
+    "enabled": false,
+    "buttons": []
+  },
+  "data": {},
+  "export_with": {
+    "data": false,
+    "button": false
+  }
+}

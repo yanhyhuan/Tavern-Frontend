@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>隔离扩展加载测试</title>
+  <link rel="icon" href="data:,">
+  <script src="/jquery.js"></script>
+  <script src="/lodash.js"></script>
+  <style>
+    body { font: 16px sans-serif; }
+    #chat { min-height: 20rem; width: 80%; }
+    #send_form { min-height: 3rem; }
+  </style>
+</head>
+<body>
+  <div id="chat"><div class="mes" mesid="0"><div class="mes_text">合成消息</div></div></div>
+  <div id="send_form"><textarea id="send_textarea"></textarea><button id="send_but">发送</button></div>
+  <script>
+    (() => {
+      const mode = new URL(location.href).searchParams.get('mode') || 'normal';
+      const listeners = new Map();
+      const eventSource = {
+        on(name, fn) {
+          const list = listeners.get(name) || [];
+          if (!list.includes(fn)) list.push(fn);
+          listeners.set(name, list);
+        },
+        once(name, fn) {
+          const callback = (...args) => { this.removeListener(name, callback); return fn(...args); };
+          this.on(name, callback);
+        },
+        removeListener(name, fn) {
+          const list = listeners.get(name) || [];
+          const at = list.indexOf(fn);
+          if (at >= 0) list.splice(at, 1);
+        },
+        makeFirst(name, fn) { this.removeListener(name, fn); const list = listeners.get(name) || []; list.unshift(fn); listeners.set(name, list); },
+        makeLast(name, fn) { this.removeListener(name, fn); this.on(name, fn); },
+        async emit(name, ...args) { for (const fn of [...(listeners.get(name) || [])]) await fn(...args); },
+      };
+      const eventTypes = Object.fromEntries([
+        'CHAT_CHANGED', 'MESSAGE_SWIPED', 'MESSAGE_DELETED', 'MESSAGE_UPDATED', 'MESSAGE_SENT',
+        'MESSAGE_RECEIVED', 'GENERATION_ENDED', 'CHARACTER_MESSAGE_RENDERED', 'GENERATION_AFTER_COMMANDS',
+      ].map(name => [name, name.toLowerCase()]));
+      const context = {
+        chat: [{ mes: '合成消息', is_user: true, swipe_id: 0 }],
+        characters: [{ avatar: 'synthetic.png', name: '合成角色' }],
+        characterId: 0,
+        groupId: null,
+        eventSource,
+        eventTypes,
+        extensionSettings: { tavern_helper: { script: { enabled: { global: true, presets: [], characters: [] } } } },
+        getCurrentChatId: () => 'synthetic-chat',
+        getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
+      };
+      const hostSt = { getContext: () => context };
+      const hostError = () => false;
+      const hostLog = console.log;
+      const hostErrorLog = console.error;
+      const toasts = [];
+      const table = {
+        mate: { type: 'chatSheets', version: 1 },
+        sheet_sample: {
+          uid: 'sheet_sample', name: '合成测试表', orderNo: 0,
+          content: [['row_id', '名称', '数值'], ['row-1', '合成角色', '10']],
+          sourceData: { ddl: 'CREATE TABLE sheet_sample (row_id TEXT PRIMARY KEY, name TEXT, value TEXT);' },
+        },
+      };
+      window.SillyTavern = hostSt;
+      window.onerror = hostError;
+      window.toastr = Object.fromEntries(['success', 'error', 'info', 'warning'].map(type => [type, (...args) => toasts.push({ type, args })]));
+      window.TavernHelper = {
+        builtin: { renderMarkdown: value => value },
+        getChatMessages: () => [{ message_id: 0, message: '合成消息', role: 'user' }],
+        setChatMessages: async () => {},
+        getLastMessageId: () => 0,
+        getCharData: () => ({ name: '合成角色' }),
+        formatAsDisplayedMessage: value => value,
+        formatAsTavernRegexedString: value => value,
+        retrieveDisplayedMessage: () => window.jQuery('.mes_text'),
+        substitudeMacros: value => value,
+        waitGlobalInitialized: () => new Promise(() => {}),
+        triggerSlash: async () => {},
+        tavern_events: eventTypes,
+        getScriptTrees: ({ type }) => mode === 'original' && type === 'global'
+          ? [{ type: 'script', enabled: true, name: '数据库前端·骰子系统', content: '' }]
+          : [],
+      };
+      if (mode === 'missing-helper') delete window.TavernHelper.builtin;
+      window.AutoCardUpdaterAPI = {
+        exportTableAsJson: () => structuredClone(table),
+        updateCell: async () => true,
+        insertRow: async () => true,
+        deleteRow: async () => true,
+        registerTableUpdateCallback: () => {},
+      };
+      localStorage.setItem('acu_console_capture_enabled', 'true');
+      window.__smoke = { context, hostSt, hostError, hostLog, hostErrorLog, toasts, listeners };
+    })();
+  </script>
+  <script>
+    window.__fixtureReady = (async () => {
+      const options = new URL(location.href).searchParams;
+      if (['default8', 'v45'].includes(options.get('fixture'))) {
+        const fixture = await import('/default-fixture.js');
+        await fixture.installDefaultFixture(window, options.get('fixture'));
+      }
+      if (options.get('mode') !== 'manual') {
+        const element = document.createElement('script');
+        element.type = 'module';
+        element.src = '/extension/index.js';
+        document.head.appendChild(element);
+      }
+    })();
+  </script>
+</body>
+</html>

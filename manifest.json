@@ -1,0 +1,13 @@
+{
+  "display_name": "数据库 骰子系统",
+  "author": "jerryzmtz（原项目）及兼容补丁贡献者",
+  "version": "1.0.1",
+  "dice_patch_version": "V1.0.1",
+  "loading_order": 110,
+  "requires": [],
+  "optional": [],
+  "dependencies": ["third-party/JS-Slash-Runner"],
+  "js": "index.js",
+  "auto_update": false,
+  "homePage": "https://github.com/yanhyhuan/Tavern-Frontend"
+}

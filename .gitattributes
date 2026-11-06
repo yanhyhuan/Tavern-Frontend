@@ -1,0 +1,7 @@
+* text=auto eol=lf
+LICENSE -text
+dice.js -text
+assets/templates/*.json -text
+tests/fixtures/*.json -text
+patches/*.patch -text
+

@@ -1,0 +1,11 @@
+node_modules/
+.build/
+release/
+.work/
+.playwright-cli/
+auto-imports.d.ts
+components.d.ts
+*.log
+.DS_Store
+Thumbs.db
+
