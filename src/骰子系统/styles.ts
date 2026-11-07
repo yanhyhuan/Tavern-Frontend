@@ -2315,7 +2315,7 @@ export const MAIN_STYLES = `
             }
             @media (max-width: 768px) {
                 .acu-wrapper.acu-dice-ui-root .acu-panel-content { -webkit-overflow-scrolling: touch !important; overscroll-behavior-y: auto; }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-container {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-container {
                     display: flex !important;
                     flex-direction: column !important;
                     align-items: stretch !important;
@@ -2323,7 +2323,7 @@ export const MAIN_STYLES = `
                     overflow: hidden !important;
                     overscroll-behavior: contain;
                 }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-items {
                     display: grid;
                     grid-template-columns: repeat(var(--acu-grid-cols, 3), minmax(0, 1fr));
                     gap: 5px;
@@ -2336,16 +2336,16 @@ export const MAIN_STYLES = `
                     -webkit-overflow-scrolling: touch;
                     scrollbar-width: none;
                 }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items::-webkit-scrollbar {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-items::-webkit-scrollbar {
                     width: 0 !important;
                     height: 0 !important;
                     display: none !important;
                 }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-items .acu-nav-btn {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-items .acu-nav-btn {
                     width: 100%;
                     min-width: 0;
                 }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-actions-group {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-actions-group {
                     position: relative;
                     bottom: auto;
                     z-index: 2;
@@ -2358,7 +2358,7 @@ export const MAIN_STYLES = `
                     background: var(--acu-bg-nav);
                     box-shadow: none;
                 }
-                .acu-wrapper.acu-dice-ui-root.acu-mode-fixed.acu-has-visible-panel .acu-nav-container.acu-pos-top .acu-actions-group {
+                .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-container.acu-pos-top .acu-actions-group {
                     order: -1 !important;
                     margin-top: 0 !important;
                     margin-bottom: 6px !important;
@@ -17202,4 +17202,229 @@ export const MAIN_STYLES = `
         background: var(--acu-scrollbar-thumb) !important;
         border-radius: 4px !important;
     }
+
+    /* ========== TT 酒馆桌面 / 移动端响应式适配 ==========
+       保持在样式表末尾，覆盖上游固定尺寸，但不改变主题与用户功能配置。 */
+    .acu-wrapper.acu-dice-ui-root {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .acu-wrapper.acu-dice-ui-root .acu-nav-container,
+    .acu-wrapper.acu-dice-ui-root .acu-nav-items,
+    .acu-wrapper.acu-dice-ui-root .acu-actions-group,
+    .acu-wrapper.acu-dice-ui-root .acu-panel-header,
+    .acu-wrapper.acu-dice-ui-root .acu-panel-content {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    /* 自动高度受视口限制时，卡片也必须同步收缩并在内部滚动。 */
+    .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-data-display:not(.acu-manual-mode) {
+        overflow: hidden;
+    }
+
+    .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-data-display:not(.acu-manual-mode) .acu-panel-content {
+        display: flex;
+        flex-direction: column;
+    }
+
+    .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-data-display:not(.acu-manual-mode) .acu-panel-content > .acu-card-grid {
+        display: grid;
+        grid-auto-flow: column;
+        grid-auto-columns: var(--acu-card-width, 260px);
+        grid-template-rows: minmax(0, 1fr);
+        flex: 1 1 auto;
+        align-items: stretch;
+        width: 100%;
+        height: auto;
+        max-height: 100%;
+        min-height: 0;
+    }
+
+    .acu-wrapper.acu-dice-ui-root .acu-data-display.acu-panel-below {
+        top: calc(100% + 10px) !important;
+        bottom: auto !important;
+    }
+
+    .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-data-display:not(.acu-manual-mode) .acu-panel-content > .acu-card-grid > .acu-data-card {
+        width: 100%;
+        height: auto;
+        max-height: none;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    @media (max-width: 768px) {
+        .acu-wrapper.acu-dice-ui-root {
+            margin-top: 8px;
+            margin-bottom: 8px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root.acu-mode-viewport {
+            left: max(8px, env(safe-area-inset-left)) !important;
+            right: max(8px, env(safe-area-inset-right)) !important;
+            bottom: max(8px, env(safe-area-inset-bottom));
+            width: auto !important;
+            max-width: none !important;
+            margin: 0 !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-data-display {
+            max-height: min(80vh, calc(100dvh - 24px));
+            border-radius: 12px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-nav-container,
+        .acu-wrapper.acu-dice-ui-root .acu-nav-items {
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-nav-btn {
+            min-width: 0;
+            padding-right: 5px;
+            padding-left: 5px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-actions-group {
+            display: grid !important;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 4px !important;
+            width: 100% !important;
+            min-width: 0;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-action-btn {
+            flex: none !important;
+            width: 100% !important;
+            min-width: 0 !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header {
+            flex-wrap: wrap;
+            align-items: flex-start;
+            gap: 8px;
+            padding: 10px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header > .acu-panel-title {
+            flex: 1 1 120px;
+            margin-right: 0;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header > .acu-header-actions.acu-table-header-actions {
+            display: flex;
+            flex: 1 1 100%;
+            flex-wrap: nowrap;
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: hidden;
+            overscroll-behavior-x: contain;
+            scrollbar-width: none;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header > .acu-header-actions.acu-table-header-actions::-webkit-scrollbar {
+            display: none;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-table-action-set,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-panel-control-set {
+            flex: 0 0 auto;
+            flex-wrap: nowrap;
+            justify-content: flex-start;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header > .acu-header-actions > .acu-search-wrapper,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-table-action-set > .acu-search-wrapper {
+            flex: 0 0 132px;
+            width: 132px;
+            min-width: 132px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-content {
+            padding: 10px;
+            scroll-padding-inline: 10px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-card-grid {
+            grid-auto-columns: min(var(--acu-card-width, 260px), calc(100vw - 52px));
+            scroll-snap-type: x proximity;
+        }
+
+        .acu-wrapper.acu-dice-ui-root:not(.acu-layout-vertical) .acu-data-card {
+            flex-basis: min(var(--acu-card-width, 260px), calc(100vw - 52px));
+            width: min(var(--acu-card-width, 260px), calc(100vw - 52px));
+            scroll-snap-align: start;
+        }
+
+        .acu-edit-overlay,
+        .acu-import-confirm-overlay,
+        .acu-config-backup-overlay,
+        .acu-preview-overlay {
+            padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+        }
+
+        .acu-edit-dialog,
+        .acu-import-confirm-dialog,
+        .acu-config-backup-dialog {
+            width: 100% !important;
+            max-width: 100% !important;
+            max-height: calc(100dvh - 16px) !important;
+        }
+    }
+
+    @media (max-width: 360px) {
+        .acu-wrapper.acu-dice-ui-root .acu-nav-container,
+        .acu-wrapper.acu-dice-ui-root .acu-nav-items {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header > .acu-panel-title {
+            flex-basis: 100%;
+        }
+    }
+
+    /* 触屏保留足够的操作热区，不再沿用上游取消酒馆 44px 触控规则的处理。 */
+    @media (hover: none) and (pointer: coarse) {
+        .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-container {
+            max-height: 220px;
+        }
+
+        .acu-wrapper.acu-dice-ui-root button.acu-nav-btn,
+        .acu-wrapper.acu-dice-ui-root button.acu-action-btn,
+        .acu-wrapper.acu-dice-ui-root .acu-expand-trigger,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-header-actions > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-table-action-set > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-panel-control-set > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-header-actions > .acu-height-control,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-panel-control-set > .acu-height-control {
+            min-height: 44px !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root button.acu-action-btn,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-header-actions > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-table-action-set > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-panel-control-set > button {
+            height: 44px !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-header-actions > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-table-action-set > button,
+        .acu-wrapper.acu-dice-ui-root .acu-panel-header .acu-panel-control-set > button {
+            width: 44px !important;
+            min-width: 44px !important;
+            flex-basis: 44px !important;
+        }
+    }
+
+    @media (max-height: 500px) and (orientation: landscape) {
+        .acu-wrapper.acu-dice-ui-root .acu-data-display {
+            max-height: calc(100dvh - 16px) !important;
+        }
+
+        .acu-wrapper.acu-dice-ui-root.acu-has-visible-panel .acu-nav-container {
+            max-height: 116px;
+        }
+    }
+
 `;

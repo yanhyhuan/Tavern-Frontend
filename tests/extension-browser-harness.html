@@ -2,14 +2,22 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>隔离扩展加载测试</title>
   <link rel="icon" href="data:,">
   <script src="/jquery.js"></script>
   <script src="/lodash.js"></script>
   <style>
     body { font: 16px sans-serif; }
-    #chat { min-height: 20rem; width: 80%; }
-    #send_form { min-height: 3rem; }
+    #chat { min-height: 20rem; width: 80%; padding-bottom: 5rem; }
+    #send_form {
+      position: fixed;
+      left: max(8px, env(safe-area-inset-left));
+      right: max(8px, env(safe-area-inset-right));
+      bottom: max(8px, env(safe-area-inset-bottom));
+      min-height: 3rem;
+      background: Canvas;
+    }
   </style>
 </head>
 <body>

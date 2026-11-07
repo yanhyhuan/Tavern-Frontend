@@ -11282,7 +11282,7 @@ import {
 
           handle.onpointermove = function (moveE) {
             const dy = moveE.clientY - startY;
-            requestedHeight = setPanelRequestedHeight($panel, startHeight - dy) || requestedHeight;
+            requestedHeight = setPanelRequestedHeight($panel, getPanelHeightForDrag($panel, startHeight, dy)) || requestedHeight;
           };
           handle.onpointerup = function (upE) {
             $(handle).add($(handle).closest('.acu-height-control')).removeClass('active');
@@ -22868,7 +22868,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     return Math.max(MIN_PANEL_HEIGHT, Math.min(MAX_PANEL_HEIGHT, height));
   };
 
-  const getPanelDisplayMaxHeight = ($panel?: JQuery<HTMLElement>): number => {
+  const getPanelDisplayMetrics = ($panel?: JQuery<HTMLElement>): { maxHeight: number; placeBelow: boolean } => {
     const panelEl = $panel?.[0];
     const panelDocument = panelEl?.ownerDocument || getTavernHostDocument();
     const panelWindow = panelDocument.defaultView || getTavernHostWindow();
@@ -22876,18 +22876,37 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     const viewportTop = viewport?.offsetTop ?? 0;
     const viewportHeight = viewport?.height || panelWindow.innerHeight || panelDocument.documentElement.clientHeight || 600;
     const viewportMaxHeight = Math.max(120, Math.floor(viewportHeight - PANEL_VIEWPORT_TOP_GUTTER));
-    if (!panelEl) return Math.min(MAX_PANEL_HEIGHT, viewportMaxHeight);
+    if (!panelEl) return { maxHeight: Math.min(MAX_PANEL_HEIGHT, viewportMaxHeight), placeBelow: false };
 
-    const rect = panelEl.getBoundingClientRect();
-    const availableAbovePanel = Math.floor(rect.bottom - viewportTop - PANEL_VIEWPORT_TOP_GUTTER);
-    const availableHeight =
-      availableAbovePanel > 0 ? Math.min(viewportMaxHeight, availableAbovePanel) : viewportMaxHeight;
-    return Math.max(120, Math.min(MAX_PANEL_HEIGHT, availableHeight));
+    const panelRect = panelEl.getBoundingClientRect();
+    const wrapper = panelEl.closest<HTMLElement>(DICE_ROOT_SELECTOR);
+    const navigation = wrapper?.querySelector<HTMLElement>('.acu-nav-container');
+    const navigationRect = navigation?.getBoundingClientRect();
+    const isViewportMode = wrapper?.classList.contains('acu-mode-viewport') === true;
+    const aboveAnchor = navigationRect?.top ?? panelRect.bottom;
+    const belowAnchor = navigationRect?.bottom ?? panelRect.top;
+    const availableAbove = Math.floor(aboveAnchor - viewportTop - PANEL_VIEWPORT_TOP_GUTTER);
+    const composerRect = panelDocument.querySelector<HTMLElement>('#send_form')?.getBoundingClientRect();
+    const composerBoundary =
+      composerRect && composerRect.top > belowAnchor && composerRect.top <= viewportTop + viewportHeight
+        ? composerRect.top - 8
+        : viewportTop + viewportHeight;
+    const availableBelow = Math.floor(composerBoundary - belowAnchor - PANEL_VIEWPORT_TOP_GUTTER);
+    // 新聊天或嵌入位置靠近页面顶部时，向下展开比把卡片压缩到不可读更可靠。
+    const placeBelow =
+      !isViewportMode && availableBelow > availableAbove && (availableAbove < 240 || availableBelow > availableAbove * 1.25);
+    const available = placeBelow ? availableBelow : availableAbove;
+    const availableHeight = available > 0 ? Math.min(viewportMaxHeight, available) : viewportMaxHeight;
+    return { maxHeight: Math.max(0, Math.min(MAX_PANEL_HEIGHT, availableHeight)), placeBelow };
   };
+
+  const getPanelDisplayMaxHeight = ($panel?: JQuery<HTMLElement>): number => getPanelDisplayMetrics($panel).maxHeight;
 
   const applyPanelDisplayMaxHeight = ($panel: JQuery<HTMLElement>): void => {
     if (!$panel?.length) return;
-    $panel[0].style.setProperty('max-height', `${getPanelDisplayMaxHeight($panel)}px`, 'important');
+    const { maxHeight, placeBelow } = getPanelDisplayMetrics($panel);
+    $panel.toggleClass('acu-panel-below', placeBelow);
+    $panel[0].style.setProperty('max-height', `${maxHeight}px`, 'important');
   };
 
   const clampPanelHeightToDisplay = (
@@ -22919,8 +22938,10 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
 
   const setPanelRequestedHeight = ($panel: JQuery<HTMLElement>, height: unknown): number | null => {
     if (!$panel?.length) return null;
-    const displayMaxHeight = getPanelDisplayMaxHeight($panel);
+    const displayMetrics = getPanelDisplayMetrics($panel);
+    const displayMaxHeight = displayMetrics.maxHeight;
     const normalizedHeight = clampPanelHeightToDisplay($panel, height, displayMaxHeight);
+    $panel.toggleClass('acu-panel-below', displayMetrics.placeBelow);
     $panel[0].style.setProperty('max-height', `${displayMaxHeight}px`, 'important');
     if (!normalizedHeight) {
       clearPanelRequestedHeight($panel);
@@ -22940,6 +22961,10 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       return null;
     }
     return setPanelRequestedHeight($panel, savedHeight);
+  };
+
+  const getPanelHeightForDrag = ($panel: JQuery<HTMLElement>, startHeight: number, deltaY: number): number => {
+    return startHeight + ($panel.hasClass('acu-panel-below') ? deltaY : -deltaY);
   };
 
   const getPanelDragStartHeight = ($panel: JQuery<HTMLElement>): number => {
@@ -53735,10 +53760,10 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       const left = visualViewport?.offsetLeft || 0;
       const bottomOffset = getViewportBottomOffset();
       const navigationAnchor = navContainer || expandTrigger || wrapper;
-      wrapper.style.setProperty('left', `${left}px`, 'important');
-      wrapper.style.setProperty('right', 'auto', 'important');
-      wrapper.style.setProperty('width', `${Math.max(280, Math.round(viewportWidth))}px`, 'important');
-      wrapper.style.setProperty('max-width', `${Math.max(280, Math.round(viewportWidth))}px`, 'important');
+      wrapper.style.setProperty('left', `calc(${left}px + max(8px, env(safe-area-inset-left)))`, 'important');
+      wrapper.style.setProperty('right', 'max(8px, env(safe-area-inset-right))', 'important');
+      wrapper.style.setProperty('width', 'auto', 'important');
+      wrapper.style.setProperty('max-width', 'none', 'important');
       wrapper.style.setProperty('transform', 'none', 'important');
       wrapper.style.setProperty('bottom', `${bottomOffset}px`, 'important');
       updateViewportNavigationSafety(navigationAnchor, bottomOffset);
@@ -55815,7 +55840,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
 
         controlEl.onpointermove = (moveEvent: PointerEvent): void => {
           const dy = moveEvent.clientY - startY;
-          requestedHeight = setPanelRequestedHeight($panel, startHeight - dy) || requestedHeight;
+          requestedHeight = setPanelRequestedHeight($panel, getPanelHeightForDrag($panel, startHeight, dy)) || requestedHeight;
         };
         controlEl.onpointerup = (upEvent: PointerEvent): void => {
           $control.add($handle).removeClass('active');
@@ -56888,7 +56913,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
 
         handle.onpointermove = function (moveE) {
           const dy = moveE.clientY - startY;
-          requestedHeight = setPanelRequestedHeight($panel, startHeight - dy) || requestedHeight;
+          requestedHeight = setPanelRequestedHeight($panel, getPanelHeightForDrag($panel, startHeight, dy)) || requestedHeight;
         };
         handle.onpointerup = function (upE) {
           $(handle).add($(handle).closest('.acu-height-control')).removeClass('active');
@@ -65948,7 +65973,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
 
       handle.onpointermove = function (moveE: PointerEvent) {
         const dy = moveE.clientY - startY;
-        requestedHeight = setPanelRequestedHeight($dataArea, startHeight - dy) || requestedHeight;
+        requestedHeight = setPanelRequestedHeight($dataArea, getPanelHeightForDrag($dataArea, startHeight, dy)) || requestedHeight;
       };
       handle.onpointerup = function (upE: PointerEvent) {
         $(handle).add($(handle).closest('.acu-height-control')).removeClass('active');
@@ -67670,7 +67695,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
 
         handle.onpointermove = function (moveE) {
           const dy = moveE.clientY - startY;
-          requestedHeight = setPanelRequestedHeight($panel, startHeight - dy) || requestedHeight;
+          requestedHeight = setPanelRequestedHeight($panel, getPanelHeightForDrag($panel, startHeight, dy)) || requestedHeight;
         };
         handle.onpointerup = function (upE) {
           $(handle).add($(handle).closest('.acu-height-control')).removeClass('active');
