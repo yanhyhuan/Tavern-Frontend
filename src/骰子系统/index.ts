@@ -40553,6 +40553,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     colIdentifier: string | number;
     value: unknown;
     skipNotify?: boolean;
+    skipRefresh?: boolean;
     skipChatSave?: boolean;
   };
 
@@ -40560,6 +40561,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     tableName: string;
     data: RuntimeCrudRowData;
     skipNotify?: boolean;
+    skipRefresh?: boolean;
     skipChatSave?: boolean;
   };
 
@@ -40567,6 +40569,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     tableName: string;
     rowIndex: number;
     skipNotify?: boolean;
+    skipRefresh?: boolean;
     skipChatSave?: boolean;
   };
 
@@ -40579,7 +40582,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     getCurrentData?: () => unknown;
     exportTableAsJson?: () => unknown;
     exportTableSnapshotsAtMessages?: (messageIndices: number[]) => Promise<unknown>;
-    refreshDataAndWorldbook?: () => Promise<unknown> | unknown;
+    refreshDataAndWorldbook?: (options?: { awaitFrontendReadback?: boolean } | null) => Promise<unknown> | unknown;
     _notifyTableUpdate?: () => void;
   };
 
@@ -40614,6 +40617,9 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       assertCurrent: () => api.assertCurrent?.(),
       fetchImpl: hostWindow.fetch.bind(hostWindow),
       verifyReplay,
+      isTauriTavernHost: Boolean((hostWindow as any)?.__TAURITAVERN__ || (globalThis as any)?.__TAURITAVERN__),
+      mismatchRetries: 3,
+      retryDelayMs: 300,
     });
   };
 
@@ -41233,6 +41239,8 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     rowIndex: number;
     changedColumns?: Set<number>;
     columnAliasMap?: Record<string, string>;
+    deferAllRefreshes?: boolean;
+    onWriteRefreshState?: (skippedRefresh: boolean) => void;
   };
 
   const applyExistingRowCellPatchesViaCrud = async (input: CrudExistingRowPatchInput): Promise<Set<number>> => {
@@ -41268,7 +41276,10 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     if (!rowId || String(input.nextRow?.[0] ?? '').trim() !== rowId) {
       throw new Error(`表 "${input.tableName}" 缺少稳定 row_id 或试图修改 row_id，已取消保存。`);
     }
-    for (const colIndex of Array.from(writableColumns).sort((left, right) => left - right)) {
+    const sortedColumns = Array.from(writableColumns).sort((left, right) => left - right);
+    const canDeferRefresh = typeof input.api.refreshDataAndWorldbook === 'function';
+    for (let colPos = 0; colPos < sortedColumns.length; colPos++) {
+      const colIndex = sortedColumns[colPos];
       const headerName = String(input.headers[colIndex] || '').trim();
       // 每个单元格都重新按稳定身份定位；不推测 ID，也不修改 exportTableAsJson 的引用。
       const entry = getLiveCrudSheet(input.api, input.sheetKey, input.sheet);
@@ -41282,16 +41293,19 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       if (String(row[colIndex] ?? '') !== String(input.currentRow[colIndex] ?? '')) {
         throw new Error(`表 "${input.tableName}" row_id=${rowId} 的“${headerName}”已被其他操作修改`);
       }
+      const shouldSkipRefresh = canDeferRefresh && (Boolean(input.deferAllRefreshes) || colPos < sortedColumns.length - 1);
       const result = await input.api.updateCell({
         tableName: input.crudTableName,
         rowIndex: index + 1,
         colIdentifier: headerName,
         value,
         skipNotify: true,
+        ...(shouldSkipRefresh ? { skipRefresh: true } : {}),
       });
       if (result !== true) {
         throw new Error(`更新 "${input.tableName}" row_id=${rowId} 失败（列：${headerName}）；可能已部分保存，请重新读取核对。`);
       }
+      input.onWriteRefreshState?.(shouldSkipRefresh);
       const readback = getLiveCrudSheet(input.api, entry.key, entry.sheet);
       const persistedRow = getSheetRows(readback?.sheet).find(candidate => String(candidate?.[0] ?? '').trim() === rowId);
       if (!persistedRow || String(persistedRow[colIndex] ?? '') !== String(value ?? '')) {
@@ -41340,7 +41354,16 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     desiredSheet: unknown,
   ): { key: string; sheet: DiffSheet } | null => findDiffSnapshotEntry(latestData, sheetKey, desiredSheet);
 
-  const applySheetDataViaCrud = async (api, sheetKey: string, desiredSheet, latestSheet) => {
+  const applySheetDataViaCrud = async (
+    api,
+    sheetKey: string,
+    desiredSheet,
+    latestSheet,
+    batchOptions?: {
+      deferAllRefreshes?: boolean;
+      onWriteRefreshState?: (skippedRefresh: boolean) => void;
+    },
+  ) => {
     if (!desiredSheet?.name || !Array.isArray(desiredSheet?.content)) {
       throw new Error(`修改表不存在或格式非法：${sheetKey}`);
     }
@@ -41358,6 +41381,7 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     const desiredRows = getSheetRows(desiredSheet);
     const oldRows = getSheetRows(latestSheet);
     const columnAliasMap = buildCrudColumnAliasMap(desiredSheet);
+    const canDeferRefresh = typeof api.refreshDataAndWorldbook === 'function';
     assertCrudRequiredColumnsRepresented(tableName, headers, desiredSheet);
 
     if (desiredRows.length > oldRows.length) {
@@ -41370,14 +41394,20 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       if (!deleteIndices) {
         throw new Error(`表 "${tableName}" 的行删除无法安全定位，已取消快捷保存。`);
       }
-      for (const rowIndex of deleteIndices.sort((left, right) => right - left)) {
+      const sortedDeleteIndices = deleteIndices.sort((left, right) => right - left);
+      for (let deletePos = 0; deletePos < sortedDeleteIndices.length; deletePos++) {
+        const rowIndex = sortedDeleteIndices[deletePos];
         const live = getLiveCrudSheet(api, sheetKey, desiredSheet);
         const liveRowIndex = getCrudRowIndexById(live.sheet, workingRows[rowIndex]?.[0]);
+        const shouldSkipRefresh =
+          canDeferRefresh && (Boolean(batchOptions?.deferAllRefreshes) || deletePos < sortedDeleteIndices.length - 1);
         const result = await api.deleteRow({
           tableName: crudTableName, rowIndex: liveRowIndex,
           skipNotify: true,
+          ...(shouldSkipRefresh ? { skipRefresh: true } : {}),
         });
         if (result !== true) throw new Error(`删除 "${tableName}" 第 ${rowIndex + 1} 行失败`);
+        batchOptions?.onWriteRefreshState?.(shouldSkipRefresh);
         workingRows.splice(rowIndex, 1);
       }
     }
@@ -41405,20 +41435,34 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
         );
         const rowData = buildRowDataForCrud(headers, desiredRows[index], undefined, desiredSheet, columnAliasMap);
         getLiveCrudSheet(api, sheetKey, desiredSheet);
-        const result = await api.insertRow({ tableName: crudTableName, data: rowData, skipNotify: true });
+        const shouldSkipRefresh =
+          canDeferRefresh && (Boolean(batchOptions?.deferAllRefreshes) || index < desiredRows.length - 1);
+        const result = await api.insertRow({
+          tableName: crudTableName,
+          data: rowData,
+          skipNotify: true,
+          ...(shouldSkipRefresh ? { skipRefresh: true } : {}),
+        });
         if (!Number.isInteger(result) || result < 1) {
           throw new Error(`向 "${tableName}" 追加新行失败：数据库拒绝写入，请检查表结构、必填列和枚举约束。`);
         }
+        batchOptions?.onWriteRefreshState?.(shouldSkipRefresh);
         workingRows.push([...desiredRows[index]]);
       }
     }
 
+    const rowsToPatch: Array<{ rowIndex: number; currentRow: unknown[]; desiredRow: unknown[]; changedColumns: Set<number> }> = [];
     for (let rowIndex = 0; rowIndex < desiredRows.length; rowIndex++) {
       const desiredRow = desiredRows[rowIndex] || [];
       const currentRow = workingRows[rowIndex] || [];
       if (sameRow(currentRow, desiredRow)) continue;
-
       const changedColumns = getCrudChangedColumns(headers, currentRow, desiredRow);
+      if (changedColumns.size === 0) continue;
+      rowsToPatch.push({ rowIndex, currentRow, desiredRow, changedColumns });
+    }
+
+    for (let patchPos = 0; patchPos < rowsToPatch.length; patchPos++) {
+      const { rowIndex, currentRow, desiredRow, changedColumns } = rowsToPatch[patchPos];
       await applyExistingRowCellPatchesViaCrud({
         api,
         sheetKey,
@@ -41431,6 +41475,8 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
         rowIndex,
         changedColumns,
         columnAliasMap,
+        deferAllRefreshes: Boolean(batchOptions?.deferAllRefreshes) || patchPos < rowsToPatch.length - 1,
+        onWriteRefreshState: batchOptions?.onWriteRefreshState,
       });
       workingRows[rowIndex] = [...desiredRow];
     }
@@ -41498,10 +41544,28 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
       }
     }
 
-    for (const sheetKey of sheetKeysToSave) {
-      const desiredSheet = dataToSave[sheetKey];
-      const latestEntry = findRuntimeSheetEntryForCrud(latestData, sheetKey, desiredSheet);
-      await applySheetDataViaCrud(api, latestEntry?.key || sheetKey, desiredSheet, latestEntry?.sheet);
+    let needsWorldbookRefresh = false;
+    try {
+      for (let sheetPos = 0; sheetPos < sheetKeysToSave.length; sheetPos++) {
+        const sheetKey = sheetKeysToSave[sheetPos];
+        const desiredSheet = dataToSave[sheetKey];
+        const latestEntry = findRuntimeSheetEntryForCrud(latestData, sheetKey, desiredSheet);
+        await applySheetDataViaCrud(api, latestEntry?.key || sheetKey, desiredSheet, latestEntry?.sheet, {
+          deferAllRefreshes: sheetPos < sheetKeysToSave.length - 1,
+          onWriteRefreshState: skippedRefresh => {
+            needsWorldbookRefresh = skippedRefresh;
+          },
+        });
+      }
+    } catch (error) {
+      if (needsWorldbookRefresh && typeof api.refreshDataAndWorldbook === 'function') {
+        try {
+          await api.refreshDataAndWorldbook({ awaitFrontendReadback: false });
+        } catch (refreshError) {
+          console.warn('[DICE]部分写入后补刷数据库世界书失败:', refreshError);
+        }
+      }
+      throw error;
     }
 
     api.assertCurrent?.();
@@ -41510,7 +41574,14 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
     await verifyRuntimeCrudPersistence(api, options?.verifyReplay);
     api.assertCurrent?.();
     cachedRawData = refreshedData;
-    api._notifyTableUpdate?.();
+    if (needsWorldbookRefresh && typeof api.refreshDataAndWorldbook === 'function') {
+      const refreshed = await api.refreshDataAndWorldbook({ awaitFrontendReadback: false });
+      if (refreshed === false) {
+        throw new Error('数据已写入，但数据库合并刷新与世界书同步失败');
+      }
+    } else {
+      api._notifyTableUpdate?.();
+    }
     return refreshedData;
   };
 
@@ -41779,22 +41850,49 @@ $opponent $oppAttrName：$oppFormula=$oppRoll，判定 $oppConditionExpr？$oppJ
         const nextRow = [...newRowData];
         const columnAliasMap = buildCrudColumnAliasMap(sheetForMetadata);
         const changedColumns = getCrudChangedColumns(headers, currentRow, nextRow);
-        const appliedColumns = await applyExistingRowCellPatchesViaCrud({
-          api,
-          sheetKey: entry?.key || tableKey,
-          tableName,
-          crudTableName,
-          headers,
-          currentRow,
-          nextRow,
-          sheet: sheetForMetadata,
-          rowIndex,
-          changedColumns,
-          columnAliasMap,
-        });
+        let needsWorldbookRefresh = false;
+        let appliedColumns: Set<number>;
+        try {
+          appliedColumns = await applyExistingRowCellPatchesViaCrud({
+            api,
+            sheetKey: entry?.key || tableKey,
+            tableName,
+            crudTableName,
+            headers,
+            currentRow,
+            nextRow,
+            sheet: sheetForMetadata,
+            rowIndex,
+            changedColumns,
+            columnAliasMap,
+            onWriteRefreshState: skippedRefresh => {
+              needsWorldbookRefresh = skippedRefresh;
+            },
+          });
+        } catch (patchError) {
+          if (needsWorldbookRefresh && typeof api.refreshDataAndWorldbook === 'function') {
+            try {
+              await api.refreshDataAndWorldbook({ awaitFrontendReadback: false });
+            } catch (refreshError) {
+              console.warn('[DICE]单行部分写入后补刷数据库世界书失败:', refreshError);
+            }
+          }
+          throw patchError;
+        }
         if (appliedColumns.size === 0) return;
         await verifyRuntimeCrudPersistence(api);
-        updateRuntimeDataCacheAfterCrud(api, entry?.key || tableKey);
+        const targetSheetKey = entry?.key || tableKey;
+        if (needsWorldbookRefresh && typeof api.refreshDataAndWorldbook === 'function') {
+          api.assertCurrent?.();
+          const latestData = cloneRuntimeDataValue(readRuntimeTableData(api));
+          const refreshedEntry = findRuntimeSheetEntryForMutation(latestData, targetSheetKey);
+          if (!refreshedEntry) throw new Error('数据库重新读取未找到目标表，不能以本地修改副本确认保存成功');
+          cachedRawData = latestData;
+          const refreshed = await api.refreshDataAndWorldbook({ awaitFrontendReadback: false });
+          if (refreshed === false) throw new Error('数据已写入，但数据库合并刷新与世界书同步失败');
+        } else {
+          updateRuntimeDataCacheAfterCrud(api, targetSheetKey);
+        }
 
         const snapshot = loadSnapshot();
         const snapshotEntry = snapshot ? findDiffSnapshotEntry(snapshot, tableKey, sheetForMetadata) : null;

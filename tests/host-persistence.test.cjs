@@ -229,3 +229,50 @@ test('超时即使请求忽略 abort 也必须失败', async () => {
   await assert.rejects(verifyHostChatPersistence(f.options), /回读超时/);
   assert.equal(signal.aborted, true);
 });
+
+test('TT 酒馆群聊首条即使不带 chat_metadata 也按文件头剥离', async () => {
+  const f = fixture(true);
+  f.options.isTauriTavernHost = true;
+  f.options.fetchImpl = async (url, init) => {
+    f.requests.push({ url, init });
+    return f.response([{ user_name: 'u' }, ...clone(f.chat)]);
+  };
+  await verifyHostChatPersistence(f.options);
+  assert.equal(f.requests.length, 1);
+
+  const g = fixture(true);
+  globalThis.__TAURITAVERN__ = true;
+  try {
+    g.options.fetchImpl = async () => g.response([{ user_name: 'u' }, ...clone(g.chat)]);
+    await verifyHostChatPersistence(g.options);
+  } finally {
+    delete globalThis.__TAURITAVERN__;
+  }
+});
+
+test('1.3.7 尾随补存短暂在途时可通过只读复查确认，始终未落盘仍明确失败', async () => {
+  const f = fixture();
+  const stale = clone(f.chat);
+  stale[1].TavernDB_ACU_IsolatedData[''].storageFrame.opaque = 'old';
+  let attempts = 0;
+  f.options.mismatchRetries = 2;
+  f.options.retryDelayMs = 5;
+  f.options.fetchImpl = async () => {
+    attempts++;
+    const body = attempts < 2 ? stale : clone(f.chat);
+    return f.response([{ chat_metadata: {} }, ...body]);
+  };
+  await verifyHostChatPersistence(f.options);
+  assert.equal(attempts, 2);
+
+  const g = fixture();
+  let staleAttempts = 0;
+  g.options.mismatchRetries = 2;
+  g.options.retryDelayMs = 5;
+  g.options.fetchImpl = async () => {
+    staleAttempts++;
+    return g.response([{ chat_metadata: {} }, ...stale]);
+  };
+  await assert.rejects(verifyHostChatPersistence(g.options), /宿主聊天副本与当前聊天不一致/);
+  assert.equal(staleAttempts, 3);
+});

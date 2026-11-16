@@ -378,3 +378,37 @@ test('legacy JSON floor persistence and row-id guessing are absent from save cha
     assert.equal(source.includes(name), false, name);
   }
 });
+
+test('1.3.7 skipRefresh defers intermediate worldbook refreshes and recovers on partial failure', async () => {
+  let refreshCalls = 0;
+  const h = harness();
+  h.api.refreshDataAndWorldbook = async () => {
+    refreshCalls++;
+    return true;
+  };
+  const before = h.before();
+  const desired = clone(before);
+  desired.sheet_jue_se.content[1][1] = '改名甲';
+  desired.sheet_jue_se.content[1][2] = '新状态甲';
+  desired.sheet_jue_se.content[2][2] = '新状态乙';
+  await h.sandbox.runSave(before, desired, ['sheet_jue_se']);
+  assert.equal(h.calls.length, 3);
+  assert.equal(h.calls[0].skipRefresh, true);
+  assert.equal(h.calls[1].skipRefresh, true);
+  assert.equal(h.calls[2].skipRefresh, undefined);
+  assert.equal(refreshCalls, 0, 'Final cell performs the single merged refresh');
+
+  let partialRefreshCalls = 0;
+  const failing = harness({ rejectAt: 2 });
+  failing.api.refreshDataAndWorldbook = async () => {
+    partialRefreshCalls++;
+    return true;
+  };
+  const beforeFail = failing.before();
+  const desiredFail = clone(beforeFail);
+  desiredFail.sheet_jue_se.content[1][1] = '改名甲';
+  desiredFail.sheet_jue_se.content[1][2] = '新状态甲';
+  await assert.rejects(failing.sandbox.runSave(beforeFail, desiredFail, ['sheet_jue_se']), /1\/2/);
+  assert.equal(failing.calls[0].skipRefresh, true);
+  assert.equal(partialRefreshCalls, 1, 'Partial save flushes deferred worldbook refresh');
+});

@@ -7,6 +7,9 @@ export type HostPersistenceVerifierOptions = {
   verifyReplay?: () => Promise<void>;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  isTauriTavernHost?: boolean;
+  mismatchRetries?: number;
+  retryDelayMs?: number;
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -65,6 +68,38 @@ const sameJsonValue = (left: unknown, right: unknown): boolean => {
   return true;
 };
 
+const detectTauriTavernHost = (override?: boolean): boolean => {
+  if (typeof override === 'boolean') return override;
+  try {
+    const root = globalThis as Record<string, unknown>;
+    if (root.__TAURITAVERN__) return true;
+    const win = isRecord(root.window) ? root.window : null;
+    if (win?.__TAURITAVERN__) return true;
+    const topCandidate = win?.top ?? root.top;
+    const topWin = isRecord(topCandidate) ? topCandidate : null;
+    return Boolean(topWin?.__TAURITAVERN__);
+  } catch {
+    return false;
+  }
+};
+
+const waitWithSignal = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('宿主聊天回读超时'));
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(handle);
+      reject(new Error('宿主聊天回读超时'));
+    };
+    const handle = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
 /**
  * 只读已固定聊天的宿主副本，确认它与本次回放所依赖的完整内存聊天一致。
  * 不调用保存接口，不写入或解释数据库私有存储字段。
@@ -75,9 +110,17 @@ export const verifyHostChatPersistence = async ({
   verifyReplay,
   fetchImpl,
   timeoutMs = 15000,
+  isTauriTavernHost,
+  mismatchRetries = 0,
+  retryDelayMs = 250,
 }: HostPersistenceVerifierOptions): Promise<void> => {
   try {
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error('回读超时设置无效');
+    const maxRetries =
+      Number.isInteger(mismatchRetries) && mismatchRetries >= 0 ? mismatchRetries : -1;
+    if (maxRetries < 0 || !Number.isFinite(retryDelayMs) || retryDelayMs < 0) {
+      throw new Error('回读重试设置无效');
+    }
     assertCurrent();
     const context = getContext(getHostContext);
     const { chat, chatId, characterId, groupId } = context;
@@ -96,6 +139,7 @@ export const verifyHostChatPersistence = async ({
     if (!Array.isArray(capturedMessages) || capturedMessages.some(message => !isRecord(message))) {
       throw new Error('当前聊天消息格式无效');
     }
+    const isTauriTavern = detectTauriTavernHost(isTauriTavernHost);
 
     const assertCaptured = (): void => {
       assertCurrent();
@@ -133,34 +177,45 @@ export const verifyHostChatPersistence = async ({
         await verifyReplay();
         assertCaptured();
       }
-      if (controller.signal.aborted) throw new Error('宿主聊天回读超时');
-      const response = await request(isGroup ? '/api/chats/group/get' : '/api/chats/get', {
-        method: 'POST',
-        cache: 'no-cache',
-        headers: { ...requestHeaders, 'Content-Type': 'application/json' } as Record<string, string>,
-        body: JSON.stringify(
-          isGroup
-            ? { id: chatId }
-            : {
-                ch_name: character!.name,
-                file_name: chatId,
-                avatar_url: character!.avatar,
-              },
-        ),
-        signal: controller.signal,
-      });
-      assertCaptured();
-      if (!response.ok) throw new Error(`宿主聊天回读失败（HTTP ${response.status}）`);
-      const payload: unknown = await response.json();
-      assertCaptured();
-      if (!Array.isArray(payload) || payload.length === 0) throw new Error('宿主聊天回读格式无效');
-      // 个人聊天有文件头；群聊旧格式可能无头，新格式以 chat_metadata 标识文件头。
-      const hasGroupHeader =
-        isGroup && isRecord(payload[0]) && Object.prototype.hasOwnProperty.call(payload[0], 'chat_metadata');
-      const messages = !isGroup || hasGroupHeader ? payload.slice(1) : payload;
-      if (messages.some(message => !isRecord(message))) throw new Error('宿主聊天回读包含无效消息');
-      if (!sameJsonValue(capturedMessages, messages)) throw new Error('宿主聊天副本与当前聊天不一致');
-      assertCaptured();
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (controller.signal.aborted) throw new Error('宿主聊天回读超时');
+        const response = await request(isGroup ? '/api/chats/group/get' : '/api/chats/get', {
+          method: 'POST',
+          cache: 'no-cache',
+          headers: { ...requestHeaders, 'Content-Type': 'application/json' } as Record<string, string>,
+          body: JSON.stringify(
+            isGroup
+              ? { id: chatId }
+              : {
+                  ch_name: character!.name,
+                  file_name: chatId,
+                  avatar_url: character!.avatar,
+                },
+          ),
+          signal: controller.signal,
+        });
+        assertCaptured();
+        if (!response.ok) throw new Error(`宿主聊天回读失败（HTTP ${response.status}）`);
+        const payload: unknown = await response.json();
+        assertCaptured();
+        if (!Array.isArray(payload) || payload.length === 0) throw new Error('宿主聊天回读格式无效');
+        // 个人聊天有文件头；TT 群聊首条总是文件头（即使不带 chat_metadata），ST 群聊仅在带 chat_metadata 时剥离。
+        const hasGroupHeader =
+          isGroup &&
+          (isTauriTavern ||
+            (isRecord(payload[0]) && Object.prototype.hasOwnProperty.call(payload[0], 'chat_metadata')));
+        const messages = !isGroup || hasGroupHeader ? payload.slice(1) : payload;
+        if (messages.some(message => !isRecord(message))) throw new Error('宿主聊天回读包含无效消息');
+        if (sameJsonValue(capturedMessages, messages)) {
+          assertCaptured();
+          return;
+        }
+        if (attempt < maxRetries) {
+          if (retryDelayMs > 0) await waitWithSignal(retryDelayMs, controller.signal);
+          assertCaptured();
+        }
+      }
+      throw new Error('宿主聊天副本与当前聊天不一致（若数据库正在后台自动填表或追平，1.3.7 会合并延迟存盘，请等待填表结束后核对）');
     })();
     try {
       await Promise.race([readPersisted, timedOut]);

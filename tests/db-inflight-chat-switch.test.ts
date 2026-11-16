@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../src/data/gateways/chat-gateway', () => ({
   getChatArray_ACU: vi.fn(() => mocks.chat),
   saveChatToHost_ACU: mocks.save,
+  saveChatToHostCoalesced_ACU: mocks.save,
+  openChatSaveCoalescing_ACU: vi.fn(),
+  closeChatSaveCoalescing_ACU: vi.fn(),
+  forceFlushChatSave_ACU: vi.fn(async () => {}),
   saveChatToHostStrict_ACU: mocks.save,
   registerPostChatSaveListener_ACU: vi.fn(),
 }));

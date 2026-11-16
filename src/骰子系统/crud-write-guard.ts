@@ -30,7 +30,7 @@ export const bindCrudWriteContext = <T extends ContextApi>(
   };
   const bound = Object.create(api);
   bound.assertCurrent = assertCurrent;
-  for (const name of ['updateCell', 'insertRow', 'deleteRow', 'exportTableSnapshotsAtMessages']) {
+  for (const name of ['updateCell', 'insertRow', 'deleteRow', 'exportTableSnapshotsAtMessages', 'refreshDataAndWorldbook']) {
     const method = (api as Record<string, any>)[name];
     if (typeof method !== 'function') continue;
     bound[name] = async (...args: unknown[]) => {
